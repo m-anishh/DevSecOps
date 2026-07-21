@@ -1,85 +1,79 @@
-@Library('Shared') _
 pipeline {
-    agent {label 'akbagent'}
-    
+    agent { label 'worker' }
+
     parameters {
         string(name: 'FRONTEND_DOCKER_TAG', defaultValue: '', description: 'Frontend Docker tag of the image built by the CI job')
         string(name: 'BACKEND_DOCKER_TAG', defaultValue: '', description: 'Backend Docker tag of the image built by the CI job')
     }
 
     stages {
-        stage("Workspace cleanup"){
-            steps{
-                script{
+        stage("Workspace cleanup") {
+            steps {
+                script {
                     cleanWs()
                 }
             }
         }
-        
+
         stage('Git: Code Checkout') {
             steps {
-                script{
-                    code_checkout("https://github.com/NotHarshhaa/DevOps-Projects/DevOps-Project-40/Devops-Mega-Project-Jenkins-ArgoCD-EKS","master")
-                }
+                git url: 'https://github.com/m-anishh/DevSecOps.git', branch: 'main'
             }
         }
-        
+
         stage('Verify: Docker Image Tags') {
             steps {
-                script{
+                script {
                     echo "FRONTEND_DOCKER_TAG: ${params.FRONTEND_DOCKER_TAG}"
                     echo "BACKEND_DOCKER_TAG: ${params.BACKEND_DOCKER_TAG}"
                 }
             }
         }
-        
-        
-        stage("Update: Kubernetes manifests"){
-            steps{
-                script{
-                    dir('kubernetes'){
+
+        stage("Update: Kubernetes manifests") {
+            steps {
+                script {
+                    dir('kubernetes') {
                         sh """
-                            sed -i -e 's|image: .*|image: thatgeekcontainer/wanderlust-backend-beta:${params.BACKEND_DOCKER_TAG}|g' backend.yaml
+                            sed -i -e 's|image: manishh11/wanderlust-backend-beta.*|image: manishh11/wanderlust-backend-beta:${params.BACKEND_DOCKER_TAG}|g' backend.yaml
+                            sed -i -e 's|image: manishh11/wanderlust-frontend-beta.*|image: manishh11/wanderlust-frontend-beta:${params.FRONTEND_DOCKER_TAG}|g' frontend.yaml
                         """
                     }
-                    
-                    dir('kubernetes'){
-                        sh """
-                            sed -i -e 's|image: .*|image: thatgeekcontainer/wanderlust-frontend-beta:${params.FRONTEND_DOCKER_TAG}|g' frontend.yaml
-                        """
-                    }
-                    
                 }
             }
         }
-        
-        stage("Git: Code update and push to GitHub"){
-            steps{
-                script{
+
+        stage("Git: Code update and push to GitHub") {
+            steps {
+                script {
                     withCredentials([gitUsernamePassword(credentialsId: 'github-cred', gitToolName: 'Default')]) {
                         sh '''
-                        echo "Checking repository status: "
-                        git status
-                    
-                        echo "Adding changes to git: "
-                        git add .
-                        
-                        echo "Commiting changes: "
-                        git commit -m "Updated environment variables"
-                        
-                        echo "Pushing changes to github: "
-                        git push https://github.com/NotHarshhaa/DevOps-Projects/DevOps-Project-40/Devops-Mega-Project-Jenkins-ArgoCD-EKS master
-                    '''
+                            git config user.email "manishhbsta11@gmail.com"
+                            git config user.name "m-anishh"
+
+                            echo "Checking repository status:"
+                            git status
+
+                            echo "Adding changes to git:"
+                            git add .
+
+                            echo "Committing changes:"
+                            git commit -m "Updated docker image tags" || echo "Nothing to commit"
+
+                            echo "Pushing changes to github:"
+                            git push https://github.com/m-anishh/DevSecOps.git main
+                        '''
                     }
                 }
             }
         }
     }
-  post {
+
+    post {
         success {
             script {
                 emailext attachLog: true,
-                from: 'prodevopsguytech@gmail.com',
+                from: 'manishhbsta11@gmail.com',
                 subject: "Wanderlust Application has been updated and deployed - '${currentBuild.result}'",
                 body: """
                     <html>
@@ -95,15 +89,15 @@ pipeline {
                         </div>
                     </body>
                     </html>
-            """,
-            to: 'prodevopsguytech@gmail.com',
-            mimeType: 'text/html'
+                """,
+                to: 'manishhbsta11@gmail.com',
+                mimeType: 'text/html'
             }
         }
-      failure {
+        failure {
             script {
                 emailext attachLog: true,
-                from: 'prodevopsguytech@gmail.com',
+                from: 'manishhbsta11@gmail.com',
                 subject: "Wanderlust Application build failed - '${currentBuild.result}'",
                 body: """
                     <html>
@@ -116,9 +110,9 @@ pipeline {
                         </div>
                     </body>
                     </html>
-            """,
-            to: 'prodevopsguytech@gmail.com',
-            mimeType: 'text/html'
+                """,
+                to: 'manishhbsta11@gmail.com',
+                mimeType: 'text/html'
             }
         }
     }

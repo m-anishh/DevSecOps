@@ -1,124 +1,96 @@
-@Library('Shared') _
 pipeline {
-    agent {label 'akbagent'}
-    
-    environment{
+    agent { label 'worker' }
+
+    environment {
         SONAR_HOME = tool "Sonar"
     }
-    
+
     parameters {
-        string(name: 'FRONTEND_DOCKER_TAG', defaultValue: '', description: 'Setting docker image for latest push')
-        string(name: 'BACKEND_DOCKER_TAG', defaultValue: '', description: 'Setting docker image for latest push')
+        string(name: 'FRONTEND_DOCKER_TAG', defaultValue: '', description: 'Frontend Docker tag')
+        string(name: 'BACKEND_DOCKER_TAG', defaultValue: '', description: 'Backend Docker tag')
     }
-    
+
     stages {
         stage("Validate Parameters") {
             steps {
                 script {
                     if (params.FRONTEND_DOCKER_TAG == '' || params.BACKEND_DOCKER_TAG == '') {
-                        error("FRONTEND_DOCKER_TAG and BACKEND_DOCKER_TAG must be provided.")
+                        error("Both FRONTEND_DOCKER_TAG and BACKEND_DOCKER_TAG must be provided.")
                     }
-                }
-            }
-        }
-        stage("Workspace cleanup"){
-            steps{
-                script{
-                    cleanWs()
-                }
-            }
-        }
-        
-        stage('Git: Code Checkout') {
-            steps {
-                script{
-                    code_checkout("https://github.com/NotHarshhaa/DevOps-Projects/DevOps-Project-40/Devops-Mega-Project-Jenkins-ArgoCD-EKS","master")
-                }
-            }
-        }
-        
-        stage("Trivy: Filesystem scan"){
-            steps{
-                script{
-                    trivy_scan()
                 }
             }
         }
 
-        stage("OWASP: Dependency check"){
-            steps{
-                script{
-                    owasp_dependency()
+        stage("Workspace cleanup") {
+            steps {
+                cleanWs()
+            }
+        }
+
+        stage('Git: Code Checkout') {
+            steps {
+                git url: 'https://github.com/m-anishh/DevSecOps.git', branch: 'main'
+            }
+        }
+
+        stage("Trivy: Filesystem scan") {
+            steps {
+                sh "trivy fs ."
+            }
+        }
+
+        stage("OWASP: Dependency check") {
+            steps {
+                dependencyCheck additionalArguments: '--scan ./', odcInstallation: 'OWASP'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+
+        stage("SonarQube: Code Analysis") {
+            steps {
+                withSonarQubeEnv("Sonar") {
+                    sh "${SONAR_HOME}/bin/sonar-scanner -Dsonar.projectName=wanderlust -Dsonar.projectKey=wanderlust -X"
                 }
             }
         }
-        
-        stage("SonarQube: Code Analysis"){
-            steps{
-                script{
-                    sonarqube_analysis("Sonar","wanderlust","wanderlust")
+
+        stage("SonarQube: Quality Gates") {
+            steps {
+                timeout(time: 5, unit: "MINUTES") {
+                    waitForQualityGate abortPipeline: false
                 }
             }
         }
-        
-        stage("SonarQube: Code Quality Gates"){
-            steps{
-                script{
-                    sonarqube_code_quality()
-                }
-            }
-        }
-        
-        stage('Exporting environment variables') {
-            parallel{
-                stage("Backend env setup"){
-                    steps {
-                        script{
-                            dir("Automations"){
-                                sh "bash updatebackendnew.sh"
-                            }
-                        }
+
+        stage("Docker: Build Images") {
+            steps {
+                script {
+                    dir('backend') {
+                        sh "docker build -t manishh11/wanderlust-backend-beta:${params.BACKEND_DOCKER_TAG} ."
+                    }
+                    dir('frontend') {
+                        sh "docker build -t manishh11/wanderlust-frontend-beta:${params.FRONTEND_DOCKER_TAG} ."
                     }
                 }
-                
-                stage("Frontend env setup"){
-                    steps {
-                        script{
-                            dir("Automations"){
-                                sh "bash updatefrontendnew.sh"
-                            }
-                        }
+            }
+        }
+
+        stage("Docker: Push to DockerHub") {
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'docker-cred', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                        sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+                        sh "docker push manishh11/wanderlust-backend-beta:${params.BACKEND_DOCKER_TAG}"
+                        sh "docker push manishh11/wanderlust-frontend-beta:${params.FRONTEND_DOCKER_TAG}"
                     }
-                }
-            }
-        }
-        
-        stage("Docker: Build Images"){
-            steps{
-                script{
-                        dir('backend'){
-                            docker_build("wanderlust-backend-beta","${params.BACKEND_DOCKER_TAG}","thatgeekcontainer")
-                        }
-                    
-                        dir('frontend'){
-                            docker_build("wanderlust-frontend-beta","${params.FRONTEND_DOCKER_TAG}","thatgeekcontainer")
-                        }
-                }
-            }
-        }
-        
-        stage("Docker: Push to DockerHub"){
-            steps{
-                script{
-                    docker_push("wanderlust-backend-beta","${params.BACKEND_DOCKER_TAG}","thatgeekcontainer") 
-                    docker_push("wanderlust-frontend-beta","${params.FRONTEND_DOCKER_TAG}","thatgeekcontainer")
                 }
             }
         }
     }
-    post{
-        success{
-            archiveArtifacts artifacts: '*.xml', followSymlinks: false
+
+    post {
+        success {
+            archiveArtifacts artifacts: '*.xml', followSymlinks: false, allowEmptyArchive: true
             build job: "Wanderlust-CD", parameters: [
                 string(name: 'FRONTEND_DOCKER_TAG', value: "${params.FRONTEND_DOCKER_TAG}"),
                 string(name: 'BACKEND_DOCKER_TAG', value: "${params.BACKEND_DOCKER_TAG}")
